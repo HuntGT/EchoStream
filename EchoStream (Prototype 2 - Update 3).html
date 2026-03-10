@@ -1,0 +1,1004 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>EchoStream — Play & Add Only (Custom Presets + Visualizer)</title>
+  <style>
+    :root{
+      --bg: #0b0d10;
+      --panel: #0f1417;
+      --muted: #95a0a8;
+      --text: #e6eef6;
+      --accent: #0f9d58;
+      --glass: rgba(255,255,255,0.03);
+    }
+    body.light {
+      --bg: #f6f7f9;
+      --panel: #ffffff;
+      --muted: #6b7280;
+      --text: #0b1220;
+      --accent: #0066cc;
+      --glass: rgba(2,6,23,0.03);
+    }
+    html,body{height:100%;margin:0;font-family:Inter,system-ui,Segoe UI,Roboto,Arial;color:var(--text);background:linear-gradient(180deg,var(--bg) 0%, #050608 100%);}
+    .app{display:flex;gap:16px;padding:16px;box-sizing:border-box;height:100%}
+    .sidebar{width:360px;padding:14px;border-radius:12px;background:var(--panel);box-shadow:0 6px 28px rgba(0,0,0,0.45);display:flex;flex-direction:column}
+    h1{margin:0 0 8px;color:var(--accent);font-size:20px}
+    .search-row{display:flex;gap:8px;margin-bottom:8px}
+    .search-row input{flex:1;padding:8px;border-radius:8px;border:1px solid rgba(255,255,255,0.04);background:transparent;color:var(--text)}
+    .uploader{border:2px dashed rgba(255,255,255,0.04);padding:10px;border-radius:8px;text-align:center;color:var(--muted);cursor:pointer;background:var(--glass)}
+    .file-list{margin-top:12px;overflow:auto;flex:1;padding-right:6px}
+    .song{display:flex;gap:10px;padding:8px;border-radius:8px;align-items:center;margin-bottom:8px;background:linear-gradient(180deg, rgba(255,255,255,0.01), transparent);}
+    .song img{width:56px;height:56px;border-radius:8px;object-fit:cover;background:#081010}
+    .meta{flex:1;min-width:0;overflow:hidden}
+    .meta .title{font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .meta .sub{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .song .actions{display:flex;flex-direction:row;gap:6px}
+    .btn{background:transparent;border:1px solid rgba(255,255,255,0.03);color:var(--text);padding:6px 8px;border-radius:8px;cursor:pointer;font-size:13px}
+    .btn.primary{background:linear-gradient(90deg,var(--accent), #2fd27a);border:0;color:#04210b}
+    .main{flex:1;display:flex;flex-direction:column;gap:12px;height:100%}
+    .controls{display:flex;align-items:center;gap:12px;padding:12px;border-radius:10px;background:linear-gradient(90deg, rgba(255,255,255,0.01), transparent)}
+    canvas{width:100%;height:200px;border-radius:8px;background:#050607}
+    .visual-controls{display:flex;gap:12px;align-items:center;justify-content:space-between}
+    .eq{display:flex;gap:12px;align-items:center;padding-top:8px;flex-wrap:wrap}
+    .eq .band{display:flex;flex-direction:column;align-items:center;width:calc(20% - 9px);min-width:80px}
+    .eq .band label{font-size:12px;color:var(--muted);margin-bottom:6px}
+    .eq input[type=range]{width:100%}
+    .small{font-size:12px;color:var(--muted)}
+    .modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,0.6);display:none;align-items:center;justify-content:center;z-index:60}
+    .modal{background:var(--panel);padding:16px;border-radius:10px;min-width:320px;max-width:92%}
+    .input-row{display:flex;flex-direction:column;margin-bottom:8px}
+    .input-row label{font-size:12px;color:var(--muted);margin-bottom:6px}
+    .input-row input, .input-row select, .input-row textarea{padding:8px;border-radius:6px;border:1px solid rgba(255,255,255,0.04);background:transparent;color:var(--text)}
+    .cover-preview{width:96px;height:96px;border-radius:8px;background:#081010;object-fit:cover;border:1px solid rgba(255,255,255,0.03)}
+    footer{color:var(--muted);font-size:12px;padding:12px;text-align:center}
+    .preset-row{display:flex;gap:8px;align-items:center;margin-top:8px}
+  </style>
+</head>
+<body>
+  <div class="app" role="application">
+    <div class="sidebar" aria-label="Library & Settings">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <h1>EchoStream</h1>
+        <div style="display:flex;gap:8px;align-items:center">
+          <button id="settingsBtn" class="btn">Settings</button>
+        </div>
+      </div>
+
+      <div class="search-row">
+        <input id="searchInput" placeholder="Search local library (title, artist, album)" aria-label="Search songs" />
+        <button id="clearSearch" class="btn">Clear</button>
+      </div>
+
+      <div id="uploader" class="uploader" tabindex="0">
+        Drop audio files here or click to select
+        <div class="small">MP3 / WAV / OGG / FLAC — will attempt online lookup by filename</div>
+        <input id="fileInput" type="file" multiple accept="audio/*" style="display:none" />
+      </div>
+
+      <div class="file-list" id="fileList" aria-live="polite"></div>
+
+      <div style="margin-top:12px;display:flex;gap:8px;align-items:center;justify-content:space-between">
+        <div class="small">Queue</div>
+        <div style="display:flex;gap:6px">
+          <button id="shuffleBtn" class="btn">Shuffle</button>
+          <button id="saveQueueBtn" class="btn">Save</button>
+        </div>
+      </div>
+      <ol id="queueList" style="margin:8px 0 0 18px;padding:0;color:var(--muted);max-height:20vh;overflow:auto"></ol>
+    </div>
+
+    <div class="main">
+      <div class="controls" aria-label="Player controls">
+        <div style="display:flex;gap:8px;align-items:center;">
+          <button id="prevBtn" class="btn">Prev</button>
+          <button id="playBtn" class="btn primary">Play</button>
+          <button id="nextBtn" class="btn">Next</button>
+        </div>
+        <div style="flex:1">
+          <div id="nowPlaying" class="small">No track loaded</div>
+          <input id="seek" type="range" min="0" max="100" value="0" style="width:100%" />
+        </div>
+        <div style="width:260px;">
+          <div style="display:flex;justify-content:flex-end;gap:8px;align-items:center;">
+            <div id="coverWrap" style="width:56px;height:56px;border-radius:8px;overflow:hidden;background:#061010"></div>
+            <div style="text-align:right">
+              <div id="trackTitle" style="font-weight:700"></div>
+              <div id="trackSub" class="small"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <div class="visual-controls">
+          <div style="display:flex;gap:8px;align-items:center">
+            <label class="small">Visualizer</label>
+            <select id="visMode" class="btn">
+              <option value="waveform">Waveform</option>
+              <option value="spectrum">Spectrum</option>
+              <option value="spectrogram">Spectrogram</option>
+              <option value="hidden">Hidden</option>
+            </select>
+            <label class="small">Sensitivity</label>
+            <input id="visSensitivity" type="range" min="0.5" max="3" step="0.1" value="1" />
+          </div>
+
+          <div style="display:flex;gap:12px;align-items:center">
+            <div>
+              <label class="small">Pitch / Speed</label>
+              <input id="pitchControl" type="range" min="0.5" max="2.0" step="0.01" value="1" />
+              <div class="small" id="pitchLabel">1.00×</div>
+            </div>
+
+            <div>
+              <label class="small">Playback rate (linked)</label>
+              <input id="rateControl" type="range" min="0.5" max="2.0" step="0.01" value="1" />
+              <div class="small" id="rateLabel">1.00×</div>
+            </div>
+          </div>
+        </div>
+
+        <canvas id="vizCanvas" width="1200" height="240"></canvas>
+
+        <div>
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <div><label class="small">Equalizer (5 bands)</label></div>
+            <div style="display:flex;gap:8px;align-items:center">
+              <label class="small">Preset</label>
+              <select id="eqPreset" class="btn"></select>
+            </div>
+          </div>
+
+          <div class="eq" id="eqBands"></div>
+
+          <div class="preset-row">
+            <input id="customPresetName" placeholder="Preset name" style="flex:1;padding:6px;border-radius:6px;background:transparent;color:var(--text);border:1px solid rgba(255,255,255,0.04)"/>
+            <button id="savePresetBtn" class="btn primary">Save Preset</button>
+            <button id="deletePresetBtn" class="btn">Delete</button>
+          </div>
+        </div>
+      </div>
+
+      <div style="display:flex;gap:12px;align-items:flex-start">
+        <div style="flex:1">
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <strong>Lyrics</strong>
+            <button id="fetchLyrics" class="btn">Fetch</button>
+          </div>
+          <div id="lyrics" style="white-space:pre-wrap;max-height:40vh;overflow:auto;padding:8px;border-radius:8px;background:rgba(255,255,255,0.02);margin-top:8px">No lyrics</div>
+        </div>
+
+        <div style="width:320px">
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <strong>AI Playlist</strong>
+            <div class="small">local / server</div>
+          </div>
+          <div style="margin-top:8px;display:flex;gap:8px">
+            <select id="moodSelect" class="btn" style="flex:1">
+              <option value="chill">Chill</option>
+              <option value="energetic">Energetic</option>
+              <option value="focus">Focus</option>
+              <option value="dance">Dance</option>
+              <option value="heavy">Heavy</option>
+              <option value="moody">Moody</option>
+              <option value="luveley">Luveley</option>
+              <option value="dreamy">Dreamy</option>
+              <option value="aggressive">Aggressive</option>
+              <option value="mellow">Mellow</option>
+            </select>
+            <button id="genPlaylist" class="btn primary">Generate</button>
+          </div>
+          <ol id="aiPlaylist" style="margin-top:10px;color:var(--muted)"></ol>
+        </div>
+      </div>
+
+      <footer>Prototype — for production, implement server-side proxies for lyrics/AI and keep keys server-side.</footer>
+    </div>
+  </div>
+
+  <!-- Edit modal (still present, but no edit/delete buttons in list) -->
+  <div id="modalBackdrop" class="modal-backdrop" role="dialog" aria-modal="true">
+    <div class="modal" role="document" aria-labelledby="modalTitle">
+      <h3 id="modalTitle">Edit song metadata</h3>
+      <div style="display:flex;gap:12px">
+        <div style="flex:1">
+          <div class="input-row"><label>Title</label><input id="metaTitle" /></div>
+          <div class="input-row"><label>Artist</label><input id="metaArtist" /></div>
+          <div class="input-row"><label>Album</label><input id="metaAlbum" /></div>
+          <div class="input-row"><label>Genre</label><input id="metaGenre" /></div>
+          <div class="input-row"><label>Notes (optional)</label><textarea id="metaNotes" rows="3"></textarea></div>
+          <div style="display:flex;gap:8px;justify-content:flex-end">
+            <button id="modalCancel" class="btn">Cancel</button>
+            <button id="modalSave" class="btn primary">Save</button>
+          </div>
+        </div>
+        <div style="width:120px;display:flex;flex-direction:column;gap:8px;align-items:center">
+          <img id="metaCoverPreview" class="cover-preview" alt="cover preview" />
+          <input id="metaCoverInput" type="file" accept="image/*" />
+          <label class="small"><input id="metaRemoveCover" type="checkbox" /> Remove cover</label>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Settings modal -->
+  <div id="settingsBackdrop" class="modal-backdrop" aria-hidden="true">
+    <div class="modal" role="document" aria-labelledby="settingsTitle">
+      <h3 id="settingsTitle">Settings</h3>
+      <div class="input-row">
+        <label>Theme</label>
+        <select id="themeSelect">
+          <option value="dark">Dark</option>
+          <option value="light">Light</option>
+        </select>
+      </div>
+      <div class="input-row">
+        <label>Default visualizer</label>
+        <select id="defaultViz">
+          <option value="waveform">Waveform</option>
+          <option value="spectrum">Spectrum</option>
+          <option value="spectrogram">Spectrogram</option>
+          <option value="hidden">Hidden</option>
+        </select>
+      </div>
+      <div style="display:flex;justify-content:flex-end;gap:8px">
+        <button id="settingsClose" class="btn">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Libraries -->
+  <script src="https://cdn.jsdelivr.net/npm/dexie@3.2.2/dist/dexie.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/node-vibrant@3.2.0/dist/vibrant.min.js"></script>
+
+  <script type="module">
+  // Small update: only "Play" and "Add" buttons are shown per track; "Add" is short.
+  let mm = null;
+  try { mm = await import('https://cdn.jsdelivr.net/npm/music-metadata-browser@2.6.1/dist/music-metadata-browser.esm.js'); }
+  catch(e){ mm = null; console.warn('music-metadata-browser not loaded, filename fallback will be used'); }
+
+  const db = new Dexie('echostreamDB');
+  db.version(1).stores({
+    songs: '++id, title, artist, album, genre, fileName, createdAt',
+    blobs: '&key'
+  });
+
+  async function saveSongFile(file, metadata = {}) {
+    const key = `file-${Date.now()}-${Math.random().toString(36).slice(2,9)}`;
+    await db.table('blobs').put({ key, blob: file });
+    const song = {
+      title: metadata.title || file.name,
+      artist: metadata.artist || '',
+      album: metadata.album || '',
+      genre: metadata.genre || '',
+      coverKey: metadata.coverKey || null,
+      fileName: file.name,
+      duration: metadata.duration || null,
+      createdAt: Date.now(),
+      blobKey: key,
+      liked: false
+    };
+    const id = await db.table('songs').add(song);
+    return { id, song };
+  }
+  async function getBlob(key) { const r = await db.table('blobs').get(key); return r?.blob || null; }
+  async function deleteBlobKey(key) { try { await db.table('blobs').delete(key); } catch(e){} }
+
+  // UI refs
+  const fileInput = document.getElementById('fileInput');
+  const uploader = document.getElementById('uploader');
+  const fileList = document.getElementById('fileList');
+  const searchInput = document.getElementById('searchInput');
+  const clearSearch = document.getElementById('clearSearch');
+
+  const playBtn = document.getElementById('playBtn');
+  const prevBtn = document.getElementById('prevBtn');
+  const nextBtn = document.getElementById('nextBtn');
+  const seek = document.getElementById('seek');
+  const nowPlaying = document.getElementById('nowPlaying');
+  const coverWrap = document.getElementById('coverWrap');
+  const trackTitle = document.getElementById('trackTitle');
+  const trackSub = document.getElementById('trackSub');
+  const vizCanvas = document.getElementById('vizCanvas');
+  const visMode = document.getElementById('visMode');
+  const visSensitivity = document.getElementById('visSensitivity');
+
+  const eqBands = document.getElementById('eqBands');
+  const eqPreset = document.getElementById('eqPreset');
+  const customPresetName = document.getElementById('customPresetName');
+  const savePresetBtn = document.getElementById('savePresetBtn');
+  const deletePresetBtn = document.getElementById('deletePresetBtn');
+
+  const pitchControl = document.getElementById('pitchControl');
+  const pitchLabel = document.getElementById('pitchLabel');
+  const rateControl = document.getElementById('rateControl');
+  const rateLabel = document.getElementById('rateLabel');
+
+  const fetchLyricsBtn = document.getElementById('fetchLyrics');
+  const lyricsBox = document.getElementById('lyrics');
+  const genPlaylistBtn = document.getElementById('genPlaylist');
+  const moodSelect = document.getElementById('moodSelect');
+  const aiPlaylist = document.getElementById('aiPlaylist');
+
+  const queueList = document.getElementById('queueList');
+  const shuffleBtn = document.getElementById('shuffleBtn');
+  const saveQueueBtn = document.getElementById('saveQueueBtn');
+
+  // Modal refs
+  const modalBackdrop = document.getElementById('modalBackdrop');
+  const metaTitle = document.getElementById('metaTitle');
+  const metaArtist = document.getElementById('metaArtist');
+  const metaAlbum = document.getElementById('metaAlbum');
+  const metaGenre = document.getElementById('metaGenre');
+  const metaNotes = document.getElementById('metaNotes');
+  const metaCoverInput = document.getElementById('metaCoverInput');
+  const metaCoverPreview = document.getElementById('metaCoverPreview');
+  const metaRemoveCover = document.getElementById('metaRemoveCover');
+  const modalCancel = document.getElementById('modalCancel');
+  const modalSave = document.getElementById('modalSave');
+
+  // Settings refs
+  const settingsBtn = document.getElementById('settingsBtn');
+  const settingsBackdrop = document.getElementById('settingsBackdrop');
+  const settingsClose = document.getElementById('settingsClose');
+  const themeSelect = document.getElementById('themeSelect');
+  const defaultViz = document.getElementById('defaultViz');
+
+  // Audio nodes
+  const audio = new Audio();
+  audio.crossOrigin = 'anonymous';
+  let audioContext = null, sourceNode = null, analyser = null, filters = [], gainNode = null;
+  const eqFreqs = [60, 250, 1000, 4000, 16000];
+
+  function ensureAudioContext() {
+    if (!audioContext) {
+      audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      sourceNode = audioContext.createMediaElementSource(audio);
+      analyser = audioContext.createAnalyser();
+      analyser.fftSize = 2048;
+      filters = eqFreqs.map(freq => {
+        const f = audioContext.createBiquadFilter();
+        f.type = 'peaking';
+        f.frequency.value = freq;
+        f.Q.value = 1;
+        f.gain.value = 0;
+        return f;
+      });
+      gainNode = audioContext.createGain();
+      let node = sourceNode;
+      filters.forEach(f => { node.connect(f); node = f; });
+      node.connect(analyser);
+      analyser.connect(gainNode);
+      gainNode.connect(audioContext.destination);
+      const storedPreset = localStorage.getItem('echostreamEqPreset') || 'flat';
+      if (storedPreset && storedPreset !== 'custom') applyEqPreset(storedPreset);
+    }
+    if (analyser && (visMode.value !== 'hidden')) drawVisualizer();
+  }
+
+  // Presets & utilities (same as previous complete file)
+  const EQ_PRESETS = {
+    flat: [0,0,0,0,0],
+    bass: [6,3,0,-2,-1],
+    jazz: [3,2,0,2,3],
+    rock: [5,3,0,2,4],
+    pop: [4,2,0,2,3],
+    metal: [6,2,-1,2,5],
+    chill: [2,1,0,-1,-2],
+    lofi: [5,2,-2,-3,-4],
+    classical: [0,0,2,3,2]
+  };
+
+  function loadCustomPresets() {
+    const raw = localStorage.getItem('echostreamCustomPresets');
+    if (!raw) return {};
+    try { return JSON.parse(raw); } catch(e) { return {}; }
+  }
+  function saveCustomPresets(obj) { localStorage.setItem('echostreamCustomPresets', JSON.stringify(obj)); }
+
+  function populatePresetDropdown() {
+    eqPreset.innerHTML = '';
+    const createOpt = (val, label) => { const o = document.createElement('option'); o.value = val; o.textContent = label; return o; };
+    eqPreset.appendChild(createOpt('flat','Flat'));
+    eqPreset.appendChild(createOpt('bass','Bass'));
+    eqPreset.appendChild(createOpt('jazz','Jazz'));
+    eqPreset.appendChild(createOpt('rock','Rock'));
+    eqPreset.appendChild(createOpt('pop','Pop'));
+    eqPreset.appendChild(createOpt('metal','Metal'));
+    eqPreset.appendChild(createOpt('chill','Chill'));
+    eqPreset.appendChild(createOpt('lofi','Lo-Fi'));
+    eqPreset.appendChild(createOpt('classical','Classical'));
+    const customs = loadCustomPresets();
+    const names = Object.keys(customs);
+    if (names.length) {
+      const sep = document.createElement('option'); sep.disabled = true; sep.textContent = '— Custom Presets —'; eqPreset.appendChild(sep);
+      names.forEach(n => eqPreset.appendChild(createOpt('custom:'+n, n)));
+    }
+    if (!Array.from(eqPreset.options).some(o=>o.value==='custom')) {
+      const customOpt = document.createElement('option'); customOpt.value='custom'; customOpt.textContent='Custom'; eqPreset.appendChild(customOpt);
+    }
+    const stored = localStorage.getItem('echostreamEqPreset') || 'flat';
+    if (stored.startsWith('custom:')) {
+      const name = stored.slice(7);
+      if (customs[name]) eqPreset.value = 'custom:'+name;
+      else eqPreset.value = 'custom';
+    } else {
+      eqPreset.value = stored;
+    }
+  }
+
+  function applyEqPreset(name) {
+    let gains = null;
+    if (name && name.startsWith('custom:')) {
+      const pname = name.slice(7);
+      const customs = loadCustomPresets();
+      gains = customs[pname] ? customs[pname] : EQ_PRESETS.flat;
+    } else if (name === 'custom') {
+      localStorage.setItem('echostreamEqPreset','custom');
+      return;
+    } else {
+      gains = EQ_PRESETS[name] || EQ_PRESETS.flat;
+    }
+    const inputs = eqBands.querySelectorAll('input[type="range"]');
+    inputs.forEach((input, idx) => {
+      input.value = gains[idx];
+      const evt = new Event('input', { bubbles: true });
+      input.dispatchEvent(evt);
+    });
+    if (filters && filters.length) filters.forEach((f, idx) => { if (gains[idx] !== undefined) f.gain.value = gains[idx]; });
+    localStorage.setItem('echostreamEqPreset', name);
+    populatePresetDropdown();
+    if (name.startsWith('custom:')) eqPreset.value = name;
+    else eqPreset.value = name;
+  }
+
+  function initEqUI() {
+    eqBands.innerHTML = '';
+    eqFreqs.forEach((f, idx) => {
+      const div = document.createElement('div'); div.className='band';
+      const label = document.createElement('label'); label.textContent = f >= 1000 ? (f/1000)+'k' : f+'Hz';
+      const input = document.createElement('input'); input.type='range'; input.min=-12; input.max=12; input.step=0.5; input.dataset.idx=idx;
+      input.addEventListener('input', (e)=> {
+        const i = Number(e.target.dataset.idx);
+        const gain = Number(e.target.value);
+        if (filters[i]) filters[i].gain.value = gain;
+        eqPreset.value = 'custom';
+        localStorage.setItem('echostreamEqPreset','custom');
+      });
+      div.appendChild(label); div.appendChild(input);
+      eqBands.appendChild(div);
+    });
+    populatePresetDropdown();
+  }
+
+  savePresetBtn.addEventListener('click', () => {
+    const name = customPresetName.value && customPresetName.value.trim();
+    if (!name) { alert('Enter a preset name'); return; }
+    const inputs = eqBands.querySelectorAll('input[type="range"]');
+    const gains = Array.from(inputs).map(i => Number(i.value));
+    const customs = loadCustomPresets();
+    customs[name] = gains;
+    saveCustomPresets(customs);
+    populatePresetDropdown();
+    eqPreset.value = 'custom:'+name;
+    localStorage.setItem('echostreamEqPreset','custom:'+name);
+    alert('Preset saved: ' + name);
+    customPresetName.value = '';
+  });
+  deletePresetBtn.addEventListener('click', () => {
+    const sel = eqPreset.value;
+    if (!sel || !sel.startsWith('custom:')) { alert('Select a saved custom preset (under custom list) to delete.'); return; }
+    const name = sel.slice(7);
+    if (!confirm(`Delete custom preset "${name}"?`)) return;
+    const customs = loadCustomPresets();
+    delete customs[name];
+    saveCustomPresets(customs);
+    populatePresetDropdown();
+    eqPreset.value = 'flat';
+    applyEqPreset('flat');
+  });
+
+  // Visualizer
+  const vctx = vizCanvas.getContext('2d');
+  let rafId = null;
+  let spectrogramCanvas = document.createElement('canvas');
+  let spectrogramCtx = spectrogramCanvas.getContext('2d');
+  function resizeVizCanvas() {
+    const w = vizCanvas.clientWidth || 800;
+    const h = vizCanvas.clientHeight || 200;
+    vizCanvas.width = Math.floor(w * devicePixelRatio);
+    vizCanvas.height = Math.floor(h * devicePixelRatio);
+    vctx.setTransform(1,0,0,1,0,0);
+    vctx.scale(devicePixelRatio, devicePixelRatio);
+    spectrogramCanvas.width = Math.max(1, Math.floor(w));
+    spectrogramCanvas.height = Math.max(1, Math.floor(h));
+    spectrogramCtx.clearRect(0,0,spectrogramCanvas.width, spectrogramCanvas.height);
+  }
+  new ResizeObserver(resizeVizCanvas).observe(vizCanvas);
+
+  function drawVisualizer() {
+    if (!analyser) return;
+    const mode = visMode.value;
+    const sens = Number(visSensitivity.value) || 1;
+    const bufferLen = analyser.frequencyBinCount;
+    const dataFreq = new Uint8Array(bufferLen);
+    const dataTime = new Uint8Array(bufferLen);
+
+    if (mode === 'spectrogram') spectrogramCtx.drawImage(spectrogramCanvas, -1, 0);
+
+    function draw() {
+      if (!analyser) return;
+      vctx.clearRect(0,0,vizCanvas.clientWidth, vizCanvas.clientHeight);
+      if (mode === 'hidden') { cancelAnimationFrame(rafId); rafId = null; return; }
+      if (mode === 'waveform') {
+        analyser.getByteTimeDomainData(dataTime);
+        vctx.lineWidth = 2;
+        vctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--accent') || '#0f9d58';
+        vctx.beginPath();
+        const slice = vizCanvas.clientWidth / bufferLen;
+        let x = 0;
+        for (let i=0;i<bufferLen;i++) {
+          const v = dataTime[i] / 128.0;
+          const y = (v * vizCanvas.clientHeight) / 2;
+          if (i===0) vctx.moveTo(x,y);
+          else vctx.lineTo(x,y);
+          x += slice;
+        }
+        vctx.stroke();
+      } else if (mode === 'spectrum') {
+        analyser.getByteFrequencyData(dataFreq);
+        const barWidth = (vizCanvas.clientWidth / bufferLen) * 2.5;
+        let x = 0;
+        for (let i=0;i<bufferLen;i++) {
+          const v = dataFreq[i] * sens;
+          const y = Math.min(vizCanvas.clientHeight, (v / 255) * vizCanvas.clientHeight);
+          const hue = (i / bufferLen) * 320;
+          vctx.fillStyle = `hsl(${hue},80%,55%)`;
+          vctx.fillRect(x, vizCanvas.clientHeight - y, barWidth, y);
+          x += barWidth + 1;
+        }
+      } else if (mode === 'spectrogram') {
+        analyser.getByteFrequencyData(dataFreq);
+        const w = spectrogramCanvas.width;
+        const h = spectrogramCanvas.height;
+        for (let y=0;y<h;y++) {
+          const bin = Math.floor((1 - y/h) * (bufferLen-1));
+          const v = dataFreq[bin] || 0;
+          const hue = (bin / bufferLen) * 320;
+          spectrogramCtx.fillStyle = `hsl(${hue},80%,${Math.max(20, (v/255)*60)}%)`;
+          spectrogramCtx.fillRect(w-1, y, 1, 1);
+        }
+        vctx.drawImage(spectrogramCanvas, 0, 0, vizCanvas.clientWidth, vizCanvas.clientHeight);
+      }
+      rafId = requestAnimationFrame(draw);
+    }
+    if (rafId) cancelAnimationFrame(rafId);
+    rafId = requestAnimationFrame(draw);
+  }
+
+  // Pitch & rate linking
+  pitchControl.addEventListener('input', () => {
+    const v = Number(pitchControl.value);
+    pitchLabel.textContent = v.toFixed(2) + '×';
+    audio.playbackRate = v;
+    rateControl.value = v;
+    rateLabel.textContent = v.toFixed(2) + '×';
+  });
+  rateControl.addEventListener('input', () => {
+    const v = Number(rateControl.value);
+    rateLabel.textContent = v.toFixed(2) + '×';
+    audio.playbackRate = v;
+    pitchControl.value = v;
+    pitchLabel.textContent = v.toFixed(2) + '×';
+  });
+
+  // iTunes lookup & upload flow
+  function simpleMatch(a,b){ if(!a||!b) return false; return a.toLowerCase().includes(b.toLowerCase()) || b.toLowerCase().includes(a.toLowerCase()); }
+  async function lookupItunes({title, artist}) {
+    const termParts = [];
+    if (artist) termParts.push(artist);
+    if (title) termParts.push(title);
+    if (!termParts.length) return null;
+    const term = encodeURIComponent(termParts.join(' '));
+    const url = `https://itunes.apple.com/search?term=${term}&media=music&entity=song&limit=6`;
+    try {
+      const res = await fetch(url);
+      if (!res.ok) return null;
+      const j = await res.json();
+      if (!j.results || !j.results.length) return null;
+      for (const r of j.results) {
+        const track = r.trackName || '';
+        const artistName = r.artistName || '';
+        if ((title && simpleMatch(track,title)) && (artist && simpleMatch(artistName,artist))) {
+          return {
+            title: track,
+            artist: artistName,
+            album: r.collectionName || '',
+            genre: r.primaryGenreName || '',
+            artwork: r.artworkUrl100 ? r.artworkUrl100.replace(/100x100bb.jpg$/, '600x600bb.jpg') : null
+          };
+        }
+      }
+      const r0 = j.results[0];
+      if (r0) {
+        return {
+          title: r0.trackName || '',
+          artist: r0.artistName || '',
+          album: r0.collectionName || '',
+          genre: r0.primaryGenreName || '',
+          artwork: r0.artworkUrl100 ? r0.artworkUrl100.replace(/100x100bb.jpg$/, '600x600bb.jpg') : null
+        };
+      }
+    } catch (err) { console.warn('iTunes lookup failed', err); }
+    return null;
+  }
+  async function saveCoverFromUrl(url) {
+    try {
+      const res = await fetch(url);
+      if (!res.ok) return null;
+      const blob = await res.blob();
+      const key = `cover-${Date.now()}-${Math.random().toString(36).slice(2,9)}`;
+      await db.table('blobs').put({ key, blob });
+      return key;
+    } catch (err) { console.warn('cover fetch failed', err); return null; }
+  }
+
+  function parseFilename(name) {
+    const base = name.replace(/\.[^/.]+$/, '');
+    const parts = base.split(/ - |_/).map(s=>s.trim()).filter(Boolean);
+    if (parts.length >= 2) return { artist: parts[0], title: parts.slice(1).join(' - ') };
+    const paren = base.match(/(.+)\(([^)]+)\)$/);
+    if (paren) return { artist: paren[2].trim(), title: paren[1].trim() };
+    return { artist: '', title: base };
+  }
+
+  // Library rendering (only Play & Add buttons)
+  let allSongsCache = [];
+  async function loadAndRender(filter = '') {
+    const songs = await db.table('songs').orderBy('createdAt').reverse().toArray();
+    allSongsCache = songs;
+    renderList(songs, filter);
+  }
+
+  async function renderList(songs, filter) {
+    const q = (filter || '').trim().toLowerCase();
+    fileList.innerHTML = '';
+    for (const s of songs) {
+      const hay = `${s.title} ${s.artist} ${s.album}`.toLowerCase();
+      if (q && !hay.includes(q)) continue;
+      const el = document.createElement('div'); el.className = 'song';
+      const img = document.createElement('img'); img.alt = '';
+      if (s.coverKey) {
+        const b = await getBlob(s.coverKey);
+        if (b) { const url = URL.createObjectURL(b); img.src = url; img.onload = ()=>URL.revokeObjectURL(url); }
+      } else { img.src = ''; }
+      const meta = document.createElement('div'); meta.className = 'meta';
+      meta.innerHTML = `<div class="title">${escapeHtml(s.title)}</div><div class="sub">${escapeHtml(s.artist)} • ${escapeHtml(s.album)}</div>`;
+      const actions = document.createElement('div'); actions.className = 'actions';
+      const addBtn = document.createElement('button'); addBtn.className='btn'; addBtn.textContent='Add';
+      const playBtnLocal = document.createElement('button'); playBtnLocal.className='btn'; playBtnLocal.textContent='Play';
+      actions.appendChild(addBtn); actions.appendChild(playBtnLocal);
+      el.appendChild(img); el.appendChild(meta); el.appendChild(actions);
+      addBtn.addEventListener('click', (e)=>{ e.stopPropagation(); queue.push(s.id); persistQueueUI(); });
+      playBtnLocal.addEventListener('click', (e)=>{ e.stopPropagation(); enqueueAndPlay(s.id); });
+      el.addEventListener('dblclick', ()=>{ enqueueAndPlay(s.id); });
+      fileList.appendChild(el);
+    }
+  }
+
+  function escapeHtml(str){ if(!str) return ''; return String(str).replace(/[&<>"']/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
+
+  // Upload & edit flows (same as before)
+  uploader.addEventListener('click', ()=>fileInput.click());
+  uploader.addEventListener('dragover', e=>{ e.preventDefault(); uploader.style.borderColor='rgba(255,255,255,0.12)'; });
+  uploader.addEventListener('dragleave', e=>{ uploader.style.borderColor=''; });
+  uploader.addEventListener('drop', async e=>{ e.preventDefault(); uploader.style.borderColor=''; if (e.dataTransfer && e.dataTransfer.files) await handleFiles(e.dataTransfer.files); });
+  fileInput.addEventListener('change', async (e)=>{ if (e.target.files) await handleFiles(e.target.files); e.target.value=''; });
+
+  async function handleFiles(fileList) {
+    const files = Array.from(fileList);
+    for (const f of files) {
+      let meta = {};
+      if (mm && mm.parseBlob) {
+        try {
+          const parsed = await mm.parseBlob(f);
+          const common = parsed.common || {};
+          if (common.title || common.artist) {
+            meta.title = common.title || parseFilename(f.name).title;
+            meta.artist = common.artist || parseFilename(f.name).artist;
+            meta.album = common.album || '';
+            meta.genre = (common.genre && common.genre[0]) || '';
+            if (common.picture && common.picture.length) {
+              const pic = common.picture[0];
+              const coverBlob = new Blob([pic.data], { type: pic.format || 'image/jpeg' });
+              const coverKey = `cover-${Date.now()}-${Math.random().toString(36).slice(2,9)}`;
+              await db.table('blobs').put({ key: coverKey, blob: coverBlob });
+              meta.coverKey = coverKey;
+            }
+          }
+        } catch (err) { console.warn('metadata parse failed', err); }
+      }
+      if (!meta.title) {
+        const p = parseFilename(f.name);
+        meta.title = p.title || '';
+        meta.artist = p.artist || '';
+      }
+      let itunes = null;
+      if ((!meta.artist || !meta.title || meta.title === f.name) && (meta.title || meta.artist)) {
+        itunes = await lookupItunes({ title: meta.title, artist: meta.artist });
+      }
+      if (itunes) {
+        const accept = confirm(`Auto-fill found:\nTitle: ${itunes.title}\nArtist: ${itunes.artist}\nAlbum: ${itunes.album}\n\nPress OK to accept, Cancel to edit manually.`);
+        if (accept) {
+          if (itunes.artwork) {
+            const coverKey = await saveCoverFromUrl(itunes.artwork);
+            meta.coverKey = coverKey;
+          }
+          meta.title = itunes.title || meta.title;
+          meta.artist = itunes.artist || meta.artist;
+          meta.album = itunes.album || meta.album;
+          meta.genre = itunes.genre || meta.genre || '';
+          await saveSongFile(f, meta);
+          continue;
+        } else {
+          await openEditModalWithFile(f, { title: itunes.title, artist: itunes.artist, album: itunes.album, genre: itunes.genre, artworkUrl: itunes.artwork });
+          continue;
+        }
+      } else {
+        const parsed = parseFilename(f.name);
+        const fallbackMeaningful = parsed.title && parsed.title.length > 2 && parsed.title !== f.name;
+        if (!fallbackMeaningful && (!meta.title || meta.title === f.name)) {
+          await openEditModalWithFile(f, {});
+          continue;
+        } else {
+          await saveSongFile(f, meta);
+        }
+      }
+    }
+    await loadAndRender(searchInput.value);
+  }
+
+  async function openEditModalForSong(songId) {
+    const s = await db.table('songs').get(songId);
+    if (!s) return;
+    modalBackdrop.style.display='flex';
+    metaTitle.value = s.title || '';
+    metaArtist.value = s.artist || '';
+    metaAlbum.value = s.album || '';
+    metaGenre.value = s.genre || '';
+    metaNotes.value = '';
+    metaRemoveCover.checked = false;
+    metaCoverInput.value = '';
+    metaCoverPreview.src = '';
+    if (s.coverKey) {
+      const b = await getBlob(s.coverKey);
+      if (b) { const url = URL.createObjectURL(b); metaCoverPreview.src = url; metaCoverPreview.onload=()=>URL.revokeObjectURL(url); }
+    }
+    modalSave.onclick = async () => {
+      const updated = { title: metaTitle.value.trim(), artist: metaArtist.value.trim(), album: metaAlbum.value.trim(), genre: metaGenre.value.trim() };
+      if (metaCoverInput.files && metaCoverInput.files[0]) {
+        const file = metaCoverInput.files[0];
+        const newKey = `cover-${Date.now()}-${Math.random().toString(36).slice(2,9)}`;
+        await db.table('blobs').put({ key: newKey, blob: file });
+        if (s.coverKey) await deleteBlobKey(s.coverKey);
+        updated.coverKey = newKey;
+      } else if (metaRemoveCover.checked) {
+        if (s.coverKey) await deleteBlobKey(s.coverKey);
+        updated.coverKey = null;
+      }
+      await db.table('songs').update(songId, updated);
+      modalBackdrop.style.display='none';
+      await loadAndRender(searchInput.value);
+    };
+    modalCancel.onclick = ()=>{ modalBackdrop.style.display='none'; };
+  }
+
+  async function openEditModalWithFile(file, prefill={}) {
+    modalBackdrop.style.display='flex';
+    metaTitle.value = prefill.title || parseFilename(file.name).title || '';
+    metaArtist.value = prefill.artist || parseFilename(file.name).artist || '';
+    metaAlbum.value = prefill.album || '';
+    metaGenre.value = prefill.genre || '';
+    metaNotes.value = '';
+    metaRemoveCover.checked = false;
+    metaCoverInput.value = '';
+    metaCoverPreview.src = '';
+    if (prefill.artworkUrl) metaCoverPreview.src = prefill.artworkUrl;
+    modalSave.onclick = async () => {
+      const metadata = { title: metaTitle.value.trim(), artist: metaArtist.value.trim(), album: metaAlbum.value.trim(), genre: metaGenre.value.trim() };
+      if (metaCoverInput.files && metaCoverInput.files[0]) {
+        const imgFile = metaCoverInput.files[0];
+        const coverKey = `cover-${Date.now()}-${Math.random().toString(36).slice(2,9)}`;
+        await db.table('blobs').put({ key: coverKey, blob: imgFile });
+        metadata.coverKey = coverKey;
+      } else if (prefill.artworkUrl && metaCoverPreview.src && metaCoverPreview.src.startsWith('http')) {
+        const coverKey = await saveCoverFromUrl(prefill.artworkUrl);
+        if (coverKey) metadata.coverKey = coverKey;
+      }
+      await saveSongFile(file, metadata);
+      modalBackdrop.style.display='none';
+      await loadAndRender(searchInput.value);
+    };
+    modalCancel.onclick = ()=>{ modalBackdrop.style.display='none'; };
+  }
+
+  async function deleteSong(songId) {
+    if (!confirm('Delete this song from your local library? This will remove the audio and cover from IndexedDB.')) return;
+    const s = await db.table('songs').get(songId);
+    if (!s) return;
+    if (s.blobKey) await deleteBlobKey(s.blobKey);
+    if (s.coverKey) await deleteBlobKey(s.coverKey);
+    await db.table('songs').delete(songId);
+    if (currentSong && currentSong.id === songId) {
+      audio.pause(); audio.src=''; currentSong = null;
+      trackTitle.textContent=''; trackSub.textContent=''; coverWrap.innerHTML='';
+    }
+    await loadAndRender(searchInput.value);
+  }
+
+  // Playback & queue
+  let currentSong = null;
+  let queue = [];
+  let currentIndex = 0;
+
+  async function enqueueAndPlay(songId) {
+    queue.push(songId); currentIndex = queue.length -1; await playQueueIndex(currentIndex);
+  }
+  async function playQueueIndex(idx) {
+    if (idx < 0 || idx >= queue.length) return;
+    const songId = queue[idx];
+    const s = await db.table('songs').get(songId);
+    if (!s) return;
+    currentSong = s;
+    const blob = await getBlob(s.blobKey);
+    if (!blob) return;
+    coverWrap.innerHTML = '';
+    if (s.coverKey) {
+      const b = await getBlob(s.coverKey);
+      if (b){ const url = URL.createObjectURL(b); const img = document.createElement('img'); img.src=url; img.onload=()=>URL.revokeObjectURL(url); img.style.width='100%'; img.style.height='100%'; img.style.objectFit='cover'; coverWrap.appendChild(img); }
+    }
+    trackTitle.textContent = s.title; trackSub.textContent = `${s.artist || ''} • ${s.album || ''}`; nowPlaying.textContent = `${s.title} — ${s.artist || ''}`;
+    const url = URL.createObjectURL(blob);
+    audio.src = url;
+    ensureAudioContext();
+    const storedPreset = localStorage.getItem('echostreamEqPreset') || 'flat';
+    if (storedPreset && storedPreset !== 'custom') applyEqPreset(storedPreset);
+    try { await audio.play(); playBtn.textContent='Pause'; } catch(e) { playBtn.textContent='Play'; }
+    audio.addEventListener('timeupdate', ()=>{ if (!audio.duration) return; seek.value = (audio.currentTime/audio.duration)*100; }, {passive:true});
+    audio.addEventListener('ended', async ()=>{ if (currentIndex < queue.length-1) { currentIndex++; await playQueueIndex(currentIndex); } else { playBtn.textContent='Play'; }});
+    drawVisualizer();
+  }
+
+  playBtn.addEventListener('click', async ()=> {
+    if (!audio.src) { if (queue.length) await playQueueIndex(currentIndex); else alert('Queue is empty — add a song to queue or play one from the list.'); return; }
+    if (audio.paused) { ensureAudioContext(); await audioContext.resume().catch(()=>{}); try { await audio.play(); } catch(e){} playBtn.textContent='Pause'; drawVisualizer(); }
+    else { audio.pause(); playBtn.textContent='Play'; if (rafId) cancelAnimationFrame(rafId); }
+  });
+  prevBtn.addEventListener('click', ()=>{ if (currentIndex>0){ currentIndex--; playQueueIndex(currentIndex); } else audio.currentTime = 0; });
+  nextBtn.addEventListener('click', ()=>{ if (currentIndex < queue.length-1){ currentIndex++; playQueueIndex(currentIndex); } });
+  seek.addEventListener('input', ()=>{ if (!audio.duration) return; audio.currentTime = (seek.value/100)*audio.duration; });
+
+  function persistQueueUI() {
+    queueList.innerHTML = '';
+    queue.forEach((id, i)=> {
+      const li = document.createElement('li'); li.style.cursor='pointer';
+      (async ()=> {
+        const s = await db.table('songs').get(id);
+        li.textContent = s ? `${s.title} — ${s.artist || ''}` : `#${id}`;
+      })();
+      li.addEventListener('click', ()=>{ currentIndex = i; playQueueIndex(i); });
+      queueList.appendChild(li);
+    });
+  }
+
+  shuffleBtn.addEventListener('click', ()=> {
+    for (let i=queue.length-1;i>0;i--) { const j = Math.floor(Math.random()*(i+1)); [queue[i],queue[j]] = [queue[j],queue[i]]; }
+    persistQueueUI();
+  });
+  saveQueueBtn.addEventListener('click', ()=> { localStorage.setItem('echostreamQueue', JSON.stringify(queue)); alert('Queue saved'); });
+
+  // Search
+  searchInput.addEventListener('input', ()=> renderList(allSongsCache, searchInput.value));
+  clearSearch.addEventListener('click', ()=>{ searchInput.value=''; renderList(allSongsCache,''); });
+
+  // AI playlist
+  genPlaylistBtn.addEventListener('click', async ()=> {
+    aiPlaylist.innerHTML='';
+    const mood = moodSelect.value;
+    const songs = await db.table('songs').toArray();
+    const moodMap = {
+      chill:['chill','ambient','lofi','mellow','downtempo'],
+      energetic:['dance','electronic','upbeat','pop'],
+      focus:['instrumental','classical','focus','ambient'],
+      dance:['dance','electronic','club'],
+      heavy:['metal','rock','heavy','hard'],
+      moody:['moody','dark','goth','brooding','indie'],
+      luveley:['love','lovely','romantic','soul','rnb','ballad','luveley'],
+      dreamy:['dream','shoegaze','dreampop','ethereal'],
+      aggressive:['punk','hardcore','angry'],
+      mellow:['mellow','smooth','jazz','soul','chill']
+    };
+    const keywords = moodMap[mood] || [];
+    let results = [];
+    if (keywords.length) {
+      results = songs.filter(s => {
+        const hay = `${s.title} ${s.artist} ${s.album} ${s.genre}`.toLowerCase();
+        return keywords.some(k => hay.includes(k));
+      }).map(s => s.id);
+    }
+    const liked = songs.filter(s=>s.liked).map(s=>s.id).filter(id=>!results.includes(id));
+    results = results.concat(liked);
+    const remaining = songs.map(s=>s.id).filter(id=>!results.includes(id));
+    while (results.length < 10 && remaining.length) {
+      const i = Math.floor(Math.random()*remaining.length);
+      results.push(remaining.splice(i,1)[0]);
+    }
+    for (const id of results.slice(0,10)) {
+      const s = await db.table('songs').get(id);
+      const li = document.createElement('li'); li.textContent = s ? `${s.title} — ${s.artist}`: `#${id}`; aiPlaylist.appendChild(li);
+    }
+  });
+
+  // Lyrics fetch
+  fetchLyricsBtn.addEventListener('click', async ()=> {
+    if (!currentSong) { lyricsBox.textContent='Load a track first.'; return; }
+    lyricsBox.textContent = 'Fetching lyrics...';
+    try {
+      const res = await fetch('/api/lyrics', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ artist: currentSong.artist, title: currentSong.title })});
+      if (res.ok) { const j = await res.json(); if (j.lyricsText) { lyricsBox.textContent = j.lyricsText; return; } }
+    } catch(e){}
+    try {
+      const a = encodeURIComponent(currentSong.artist || '');
+      const t = encodeURIComponent(currentSong.title || '');
+      const r = await fetch(`https://api.lyrics.ovh/v1/${a}/${t}`);
+      if (r.ok) { const j = await r.json(); if (j.lyrics) { lyricsBox.textContent = j.lyrics; return; } }
+    } catch(e){}
+    const pasted = prompt('Lyrics not found automatically. Paste lyrics here (OK to cancel):');
+    if (pasted) lyricsBox.textContent = pasted;
+    else lyricsBox.textContent = 'No lyrics available.';
+  });
+
+  // Settings modal (kept for theme & default viz)
+  const settingsBtnEl = document.getElementById('settingsBtn');
+  const settingsBackdropEl = document.getElementById('settingsBackdrop');
+  const settingsCloseEl = document.getElementById('settingsClose');
+  // These elements exist earlier in the file; wire up if present
+  try {
+    settingsBtnEl.addEventListener('click', ()=> { settingsBackdropEl.style.display='flex'; settingsBackdropEl.setAttribute('aria-hidden','false'); });
+    settingsCloseEl.addEventListener('click', ()=> { settingsBackdropEl.style.display='none'; settingsBackdropEl.setAttribute('aria-hidden','true'); });
+    themeSelect.addEventListener('change', ()=> {
+      const v = themeSelect.value;
+      if (v === 'light') { document.body.classList.add('light'); localStorage.setItem('echostreamTheme','light'); }
+      else { document.body.classList.remove('light'); localStorage.setItem('echostreamTheme','dark'); }
+    });
+    defaultViz.addEventListener('change', ()=> { visMode.value = defaultViz.value; visMode.dispatchEvent(new Event('change')); localStorage.setItem('echostreamDefaultViz', defaultViz.value); });
+  } catch(e){ /* ignore if missing */ }
+
+  // init
+  initEqUI();
+  resizeVizCanvas();
+  (function loadSettings(){
+    const t = localStorage.getItem('echostreamTheme') || 'dark';
+    if (t === 'light') { document.body.classList.add('light'); themeSelect.value='light'; } else { document.body.classList.remove('light'); themeSelect.value='dark'; }
+    const dv = localStorage.getItem('echostreamDefaultViz') || 'spectrogram';
+    defaultViz.value = dv;
+    visMode.value = dv;
+    const customs = loadCustomPresets();
+    const persisted = JSON.parse(localStorage.getItem('echostreamQueue') || '[]');
+    if (Array.isArray(persisted) && persisted.length) { queue = persisted; persistQueueUI(); }
+  })();
+
+  let allSongs = [];
+  async function loadAndRenderInitial() {
+    await loadAndRender();
+    allSongs = await db.table('songs').toArray();
+  }
+  await loadAndRenderInitial();
+
+  window.__openEditForFile = openEditModalWithFile;
+  console.info('EchoStream — updated to show only Play and Add buttons per track (Add shortened). Save and open the file in a modern browser.');
+  </script>
+</body>
+</html>

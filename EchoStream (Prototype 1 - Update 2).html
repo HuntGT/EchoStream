@@ -1,0 +1,884 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>EchoStream — Cover + Expanded Genres</title>
+  <style>
+    :root{
+      --bg:#0b0d10;
+      --panel:#0f1417;
+      --muted:#95a0a8;
+      --accent: #0f9d58;
+      --glass: rgba(255,255,255,0.03);
+    }
+    html,body{height:100%;margin:0;font-family:Inter,system-ui,Segoe UI,Roboto,'Helvetica Neue',Arial;color:#e6eef6;background:linear-gradient(180deg,#050608 0%, #0b0d10 100%);}
+    .app{display:flex;gap:18px;padding:18px;box-sizing:border-box;}
+    .sidebar{width:340px;background:var(--panel);border-radius:12px;padding:14px;box-shadow: 0 6px 24px rgba(0,0,0,0.6);overflow:hidden;}
+    .main{flex:1;display:flex;flex-direction:column;gap:12px;}
+    h1{font-size:20px;margin:6px 0;color:var(--accent);}
+    .uploader{border:2px dashed rgba(255,255,255,0.04);padding:12px;border-radius:10px;text-align:center;color:var(--muted);cursor:pointer;background:var(--glass);position:relative;}
+    .file-list{margin-top:12px;max-height:46vh;overflow:auto;padding-right:6px;}
+    .song{display:flex;gap:10px;padding:8px;border-radius:8px;align-items:center;margin-bottom:8px;background:linear-gradient(180deg, rgba(255,255,255,0.01), transparent);cursor:pointer;}
+    .song img{width:56px;height:56px;border-radius:8px;object-fit:cover;background:#081010;}
+    .song .meta{flex:1;min-width:0;}
+    .song .meta .title{font-weight:600;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+    .song .meta .sub{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+    .controls{display:flex;align-items:center;gap:12px;padding:12px;border-radius:10px;background:linear-gradient(90deg, rgba(255,255,255,0.01), transparent);}
+    .btn{background:transparent;border:1px solid rgba(255,255,255,0.03);color:#eaf7ee;padding:8px 12px;border-radius:8px;cursor:pointer;}
+    .btn.primary{background:linear-gradient(90deg,var(--accent), #2fd27a);border:0;color:#04210b;}
+    .visualizer{background:linear-gradient(180deg,#060708 60%, rgba(0,0,0,0.4));border-radius:10px;padding:8px;}
+    .eq{display:flex;gap:12px;align-items:center;padding-top:8px;flex-wrap:wrap;}
+    .eq .band{display:flex;flex-direction:column;align-items:center;width:calc(20% - 9px);min-width:80px;}
+    .eq .band label{font-size:12px;color:var(--muted);margin-bottom:6px;}
+    .eq input[type=range]{width:100%;}
+    .toprow{display:flex;justify-content:space-between;align-items:center;}
+    .search{display:flex;gap:8px;align-items:center;}
+    .small{font-size:12px;color:var(--muted);}
+    footer{color:var(--muted);font-size:12px;padding:12px;text-align:center;}
+    .badge{background:rgba(255,255,255,0.03);padding:4px 8px;border-radius:999px;font-size:12px;color:var(--muted);}
+    .queue{margin-top:12px;border-radius:8px;padding:8px;background:linear-gradient(90deg, rgba(255,255,255,0.01), transparent);max-height:25vh;overflow:auto;}
+    .lyrics{white-space:pre-wrap;max-height:30vh;overflow:auto;padding:8px;background:rgba(255,255,255,0.02);border-radius:8px;}
+    .muted-note{font-size:12px;color:var(--muted);margin-top:6px;}
+    /* Modal */
+    .modal-backdrop{position:fixed;left:0;top:0;right:0;bottom:0;background:rgba(0,0,0,0.6);display:none;align-items:center;justify-content:center;z-index:40;}
+    .modal{background:var(--panel);padding:16px;border-radius:10px;min-width:320px;max-width:90%;}
+    .modal h3{margin:0 0 8px 0;color:var(--accent);}
+    .input-row{display:flex;flex-direction:column;margin-bottom:8px;}
+    .input-row label{font-size:12px;color:var(--muted);margin-bottom:6px;}
+    .input-row input, .input-row select{padding:8px;border-radius:6px;border:1px solid rgba(255,255,255,0.04);background:transparent;color:#fff;}
+    .cover-preview{width:96px;height:96px;border-radius:8px;background:#081010;object-fit:cover;border:1px solid rgba(255,255,255,0.03);}
+  </style>
+</head>
+<body>
+  <div class="app" role="application">
+    <div class="sidebar">
+      <div class="toprow">
+        <h1>EchoStream</h1>
+        <div class="badge">Local-first</div>
+      </div>
+
+      <div id="uploader" class="uploader" tabindex="0">
+        Drop audio files here or click to select
+        <div class="muted-note">MP3, WAV, OGG, FLAC — metadata auto-parsed</div>
+        <input id="fileinput" type="file" multiple accept="audio/*" style="display:none" />
+      </div>
+
+      <div style="margin-top:12px;">
+        <label class="small">Visualizer mode</label>
+        <div style="display:flex;gap:8px;margin-top:6px;">
+          <select id="visMode" class="btn" style="flex:1;">
+            <option value="waveform">Waveform</option>
+            <option value="spectrum">Spectrum</option>
+            <option value="hidden">Hidden (photosensitive)</option>
+          </select>
+          <button id="clearDb" class="btn" title="Clear local library">Clear</button>
+        </div>
+      </div>
+
+      <div class="file-list" id="fileList" aria-live="polite" style="margin-top:12px;">
+        <!-- songs will appear here -->
+      </div>
+
+      <div class="queue" id="queueBox">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <div class="small">Queue</div>
+          <div style="display:flex;gap:8px;">
+            <button id="shuffleBtn" class="btn">Shuffle</button>
+            <button id="saveQueueBtn" class="btn">Save</button>
+          </div>
+        </div>
+        <ol id="queueList" style="margin:8px 0 0 16px;padding:0;color:var(--muted)"></ol>
+      </div>
+    </div>
+
+    <div class="main">
+      <div class="controls" role="region" aria-label="Player controls">
+        <div style="display:flex;gap:8px;align-items:center;">
+          <button id="prevBtn" class="btn">Prev</button>
+          <button id="playBtn" class="btn primary">Play</button>
+          <button id="nextBtn" class="btn">Next</button>
+        </div>
+        <div style="flex:1">
+          <div id="nowPlaying" class="small">No track loaded</div>
+          <input id="seek" type="range" min="0" max="100" value="0" style="width:100%" />
+        </div>
+        <div style="width:260px;">
+          <div style="display:flex;justify-content:flex-end;gap:8px;align-items:center;">
+            <div id="coverWrap" style="width:56px;height:56px;border-radius:8px;overflow:hidden;background:#061010"></div>
+            <div style="text-align:right">
+              <div id="trackTitle" style="font-weight:700"></div>
+              <div id="trackSub" class="small"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="visualizer">
+        <canvas id="vizCanvas" width="1200" height="240" style="width:100%;height:200px;border-radius:8px;display:block"></canvas>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;">
+          <div style="flex:1">
+            <label class="small">Equalizer (5 bands)</label>
+            <div class="eq" id="eqBands" aria-hidden="false"></div>
+          </div>
+          <div style="text-align:right;margin-left:12px;">
+            <div class="small">Accent color: <span id="accentLabel">default</span></div>
+            <div style="height:10px;width:80px;border-radius:6px;background:var(--accent);margin-top:6px"></div>
+          </div>
+        </div>
+      </div>
+
+      <div style="display:flex;gap:12px;align-items:flex-start;">
+        <div style="flex:1;">
+          <div style="display:flex;justify-content:space-between;align-items:end;">
+            <div><strong>Lyrics</strong><div class="small">Fetch via proxy (recommended)</div></div>
+            <div style="display:flex;gap:8px;">
+              <button id="fetchLyrics" class="btn">Fetch Lyrics</button>
+              <button id="editMetadata" class="btn">Edit Metadata</button>
+            </div>
+          </div>
+          <div id="lyrics" class="lyrics" aria-live="polite">No lyrics loaded.</div>
+          <div class="muted-note">If your server proxy (/api/lyrics) is unavailable the app will try https://api.lyrics.ovh/ and then provide a manual paste option.</div>
+        </div>
+
+        <div style="width:340px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;">
+            <strong>AI Playlist</strong>
+            <div class="small">Local demo / server option</div>
+          </div>
+          <div style="margin-top:8px;display:flex;gap:8px;">
+            <select id="mood" class="btn" style="flex:1">
+              <option value="chill">Chill</option>
+              <option value="energetic">Energetic</option>
+              <option value="focus">Focus</option>
+              <option value="dance">Dance</option>
+              <option value="heavy">Heavy</option>
+              <option value="moody">Moody</option>
+              <option value="luveley">Luveley</option>
+              <option value="dreamy">Dreamy</option>
+              <option value="aggressive">Aggressive</option>
+              <option value="mellow">Mellow</option>
+            </select>
+            <button id="genPlaylist" class="btn primary">Generate</button>
+          </div>
+          <div class="muted-note" style="margin-top:8px">Server endpoint /api/ai/generate-playlist will be used if available; otherwise a local heuristic is used that attempts to match genres/keywords.</div>
+          <div style="margin-top:12px">
+            <div class="small">Generated playlist</div>
+            <ol id="aiPlaylist" style="margin-top:6px;color:var(--muted)"></ol>
+          </div>
+        </div>
+      </div>
+
+      <footer>
+        Local prototype. For production, implement server proxies for lyrics/AI and keep API keys server-side.
+      </footer>
+    </div>
+  </div>
+
+  <!-- Modal for editing metadata + cover upload -->
+  <div id="modalBackdrop" class="modal-backdrop" role="dialog" aria-modal="true">
+    <div class="modal" role="document" aria-labelledby="modalTitle">
+      <h3 id="modalTitle">Edit metadata & cover</h3>
+      <div style="display:flex;gap:12px;align-items:flex-start;">
+        <div style="flex:1;">
+          <div class="input-row"><label>Title</label><input id="metaTitle" type="text"></div>
+          <div class="input-row"><label>Artist</label><input id="metaArtist" type="text"></div>
+          <div class="input-row"><label>Album</label><input id="metaAlbum" type="text"></div>
+          <div class="input-row"><label>Genre</label><input id="metaGenre" type="text"></div>
+          <div style="display:flex;gap:8px;margin-top:6px;justify-content:flex-end;">
+            <button id="modalCancel" class="btn">Cancel</button>
+            <button id="modalSave" class="btn primary">Save</button>
+          </div>
+        </div>
+        <div style="width:120px;display:flex;flex-direction:column;align-items:center;gap:8px;">
+          <img id="metaCoverPreview" class="cover-preview" alt="cover preview"/>
+          <label class="small">Cover image</label>
+          <input id="metaCoverInput" type="file" accept="image/*" />
+          <label style="font-size:12px;color:var(--muted);"><input id="metaRemoveCover" type="checkbox" /> Remove cover</label>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Libraries -->
+  <script src="https://cdn.jsdelivr.net/npm/dexie@3.2.2/dist/dexie.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/node-vibrant@3.2.0/dist/vibrant.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/meyda/dist/web/meyda.min.js"></script>
+
+  <script type="module">
+  // Single-file EchoStream with cover upload + expanded moods
+  let mm = null;
+  try {
+    mm = await import('https://cdn.jsdelivr.net/npm/music-metadata-browser@2.6.1/dist/music-metadata-browser.esm.js');
+  } catch (err) {
+    console.warn('music-metadata-browser ESM failed to load; filename fallback will be used.', err);
+    mm = null;
+  }
+
+  const db = new Dexie('echostreamDB');
+  db.version(1).stores({
+    songs: '++id, title, artist, album, genre, fileName, createdAt',
+    blobs: '&key'
+  });
+
+  async function saveSongFile(file, metadata = {}) {
+    const key = `file-${Date.now()}-${Math.random().toString(36).slice(2,9)}`;
+    await db.table('blobs').put({ key, blob: file });
+    const song = {
+      title: metadata.title || file.name,
+      artist: metadata.artist || '',
+      album: metadata.album || '',
+      genre: metadata.genre || '',
+      coverKey: metadata.coverKey || null,
+      fileName: file.name,
+      duration: metadata.duration || null,
+      createdAt: Date.now(),
+      blobKey: key,
+      liked: false
+    };
+    const id = await db.table('songs').add(song);
+    return { id, song };
+  }
+
+  async function getSongBlobByKey(key) {
+    const rec = await db.table('blobs').get(key);
+    return rec?.blob || null;
+  }
+
+  // UI refs
+  const fileInput = document.getElementById('fileinput');
+  const uploader = document.getElementById('uploader');
+  const fileList = document.getElementById('fileList');
+  const playBtn = document.getElementById('playBtn');
+  const prevBtn = document.getElementById('prevBtn');
+  const nextBtn = document.getElementById('nextBtn');
+  const seek = document.getElementById('seek');
+  const nowPlaying = document.getElementById('nowPlaying');
+  const coverWrap = document.getElementById('coverWrap');
+  const trackTitle = document.getElementById('trackTitle');
+  const trackSub = document.getElementById('trackSub');
+  const vizCanvas = document.getElementById('vizCanvas');
+  const visMode = document.getElementById('visMode');
+  const eqBands = document.getElementById('eqBands');
+  const accentLabel = document.getElementById('accentLabel');
+  const lyricsBox = document.getElementById('lyrics');
+  const fetchLyricsBtn = document.getElementById('fetchLyrics');
+  const editMetadataBtn = document.getElementById('editMetadata');
+  const genPlaylistBtn = document.getElementById('genPlaylist');
+  const aiPlaylist = document.getElementById('aiPlaylist');
+  const queueList = document.getElementById('queueList');
+  const shuffleBtn = document.getElementById('shuffleBtn');
+  const clearDbBtn = document.getElementById('clearDb');
+  const saveQueueBtn = document.getElementById('saveQueueBtn');
+
+  // Modal refs for metadata + cover
+  const modalBackdrop = document.getElementById('modalBackdrop');
+  const metaTitle = document.getElementById('metaTitle');
+  const metaArtist = document.getElementById('metaArtist');
+  const metaAlbum = document.getElementById('metaAlbum');
+  const metaGenre = document.getElementById('metaGenre');
+  const metaCoverInput = document.getElementById('metaCoverInput');
+  const metaCoverPreview = document.getElementById('metaCoverPreview');
+  const metaRemoveCover = document.getElementById('metaRemoveCover');
+  const modalSave = document.getElementById('modalSave');
+  const modalCancel = document.getElementById('modalCancel');
+
+  // Audio
+  const audio = new Audio();
+  audio.crossOrigin = 'anonymous';
+  let audioContext = null;
+  let sourceNode = null;
+  let analyser = null;
+  let filters = [];
+  let currentSong = null;
+  let queue = [];
+  let currentIndexInQueue = 0;
+  let rafId = null;
+  let currentCoverURL = null;
+
+  const eqFreqs = [60, 250, 1000, 4000, 16000];
+
+  function initEqUI() {
+    eqBands.innerHTML = '';
+    eqFreqs.forEach((f, idx) => {
+      const div = document.createElement('div');
+      div.className = 'band';
+      const label = document.createElement('label');
+      label.textContent = f >= 1000 ? (f/1000)+'k' : f+'Hz';
+      const input = document.createElement('input');
+      input.type = 'range';
+      input.min = -12;
+      input.max = 12;
+      input.step = 0.5;
+      input.value = 0;
+      input.dataset.idx = idx;
+      input.addEventListener('input', (e) => {
+        const i = Number(e.target.dataset.idx);
+        const gain = Number(e.target.value);
+        if (filters[i]) filters[i].gain.value = gain;
+      });
+      div.appendChild(label);
+      div.appendChild(input);
+      eqBands.appendChild(div);
+    });
+  }
+
+  function ensureAudioContext() {
+    if (!audioContext) {
+      audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      sourceNode = audioContext.createMediaElementSource(audio);
+      analyser = audioContext.createAnalyser();
+      analyser.fftSize = 2048;
+      filters = eqFreqs.map((freq) => {
+        const f = audioContext.createBiquadFilter();
+        f.type = 'peaking';
+        f.frequency.value = freq;
+        f.Q.value = 1;
+        f.gain.value = 0;
+        return f;
+      });
+      let node = sourceNode;
+      filters.forEach((fnode) => { node.connect(fnode); node = fnode; });
+      node.connect(analyser);
+      analyser.connect(audioContext.destination);
+      // optional Meyda
+      try {
+        if (window.Meyda && window.Meyda.createMeydaAnalyzer) {
+          const meydaAnalyzer = Meyda.createMeydaAnalyzer({
+            audioContext,
+            source: sourceNode,
+            bufferSize: 512,
+            featureExtractors: ['rms','spectralCentroid','spectralFlatness','zcr'],
+            callback: (features) => { window.__latestFeatures = features; }
+          });
+          meydaAnalyzer.start();
+        }
+      } catch (err) { console.warn('Meyda init failed', err); }
+    }
+  }
+
+  const vctx = vizCanvas.getContext('2d');
+  function drawVisualizer() {
+    if (!analyser) return;
+    const mode = visMode.value;
+    function resizeCanvas() {
+      const wCss = vizCanvas.clientWidth;
+      const hCss = vizCanvas.clientHeight;
+      vizCanvas.width = Math.floor(wCss * devicePixelRatio);
+      vizCanvas.height = Math.floor(hCss * devicePixelRatio);
+      vctx.resetTransform && vctx.resetTransform();
+      vctx.scale(devicePixelRatio, devicePixelRatio);
+    }
+    resizeCanvas();
+    const bufferLen = analyser.frequencyBinCount;
+    const data = new Uint8Array(bufferLen);
+    function draw() {
+      vctx.clearRect(0,0,vizCanvas.clientWidth, vizCanvas.clientHeight);
+      if (mode === 'hidden') return;
+      if (mode === 'waveform') {
+        analyser.getByteTimeDomainData(data);
+        vctx.lineWidth = 2;
+        vctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--accent') || '#0f9d58';
+        vctx.beginPath();
+        const slice = vizCanvas.clientWidth / bufferLen;
+        let x = 0;
+        for (let i=0;i<bufferLen;i++) {
+          const v = data[i] / 128.0;
+          const y = (v * vizCanvas.clientHeight) / 2;
+          if (i===0) vctx.moveTo(x,y);
+          else vctx.lineTo(x,y);
+          x += slice;
+        }
+        vctx.stroke();
+      } else {
+        analyser.getByteFrequencyData(data);
+        const barWidth = (vizCanvas.clientWidth / bufferLen) * 2.5;
+        let x = 0;
+        for (let i=0;i<bufferLen;i++) {
+          const v = data[i];
+          const y = (v / 255) * vizCanvas.clientHeight;
+          const hue = (i / bufferLen) * 320;
+          vctx.fillStyle = `hsl(${hue},80%,55%)`;
+          vctx.fillRect(x, vizCanvas.clientHeight - y, barWidth, y);
+          x += barWidth + 1;
+        }
+      }
+      rafId = requestAnimationFrame(draw);
+    }
+    if (rafId) cancelAnimationFrame(rafId);
+    rafId = requestAnimationFrame(draw);
+    new ResizeObserver(resizeCanvas).observe(vizCanvas);
+  }
+
+  function escapeHtml(str) {
+    if (!str) return '';
+    return str.replace(/[&<>"']/g, (m) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[m]);
+  }
+
+  async function refreshFileList() {
+    // Revoke any temporary URLs created for list images previously (we don't track them globally,
+    // but each img revokes its own URL via onload handler below)
+    fileList.innerHTML = '';
+    const songs = await db.table('songs').orderBy('createdAt').reverse().toArray();
+    for (const s of songs) {
+      const el = document.createElement('div');
+      el.className = 'song';
+      const img = document.createElement('img');
+      img.alt = '';
+      img.src = '';
+      if (s.coverKey) {
+        try {
+          const b = await getSongBlobByKey(s.coverKey);
+          if (b) {
+            const url = URL.createObjectURL(b);
+            img.src = url;
+            img.onload = () => { try { URL.revokeObjectURL(url); } catch(e){} };
+          }
+        } catch (err) { /* ignore */ }
+      } else {
+        img.src = ''; // blank/placeholder
+      }
+      const meta = document.createElement('div');
+      meta.className = 'meta';
+      meta.innerHTML = `<div class="title">${escapeHtml(s.title)}</div><div class="sub">${escapeHtml(s.artist || '')} • ${escapeHtml(s.album || '')}</div>`;
+      const likeBtn = document.createElement('button');
+      likeBtn.className = 'btn';
+      likeBtn.textContent = s.liked ? '★' : '☆';
+      likeBtn.title = 'Like';
+      likeBtn.addEventListener('click', async (ev) => {
+        ev.stopPropagation();
+        await db.table('songs').update(s.id, { liked: !s.liked });
+        refreshFileList();
+      });
+      el.appendChild(img);
+      el.appendChild(meta);
+      el.appendChild(likeBtn);
+      el.addEventListener('click', () => {
+        queue.push(s.id);
+        currentIndexInQueue = queue.length - 1;
+        persistQueueUI();
+        loadAndPlaySong(s.id);
+      });
+      fileList.appendChild(el);
+    }
+  }
+
+  function persistQueueUI() {
+    queueList.innerHTML = '';
+    queue.forEach((id, i) => {
+      const li = document.createElement('li');
+      li.style.cursor = 'pointer';
+      li.addEventListener('click', async () => {
+        currentIndexInQueue = i;
+        loadAndPlaySong(queue[i]);
+      });
+      (async () => {
+        const s = await db.table('songs').get(id);
+        li.textContent = s ? `${s.title} — ${s.artist || ''}` : `#${id}`;
+      })();
+      queueList.appendChild(li);
+    });
+  }
+
+  async function loadAndPlaySong(songId) {
+    const s = await db.table('songs').get(songId);
+    if (!s) return;
+    currentSong = s;
+    const blob = await getSongBlobByKey(s.blobKey);
+    if (!blob) return;
+    if (currentCoverURL) { try { URL.revokeObjectURL(currentCoverURL); } catch(e){} currentCoverURL = null; }
+    const url = URL.createObjectURL(blob);
+    audio.src = url;
+    ensureAudioContext();
+    trackTitle.textContent = s.title;
+    trackSub.textContent = (s.artist || 'Unknown artist') + (s.album ? ' • ' + s.album : '');
+    nowPlaying.textContent = `${s.title} — ${s.artist || 'Unknown'}`;
+    coverWrap.innerHTML = '';
+    if (s.coverKey) {
+      const cb = await getSongBlobByKey(s.coverKey);
+      if (cb) {
+        const img = document.createElement('img');
+        currentCoverURL = URL.createObjectURL(cb);
+        img.src = currentCoverURL;
+        img.style.width = '100%';
+        img.style.height = '100%';
+        img.style.objectFit = 'cover';
+        coverWrap.appendChild(img);
+        extractAccentColorFromBlob(cb);
+      } else {
+        setAccent('#0f9d58', 'default');
+      }
+    } else {
+      coverWrap.style.background = '#081010';
+      setAccent('#0f9d58','default');
+    }
+    audio.addEventListener('timeupdate', () => {
+      if (!audio.duration || isNaN(audio.duration)) return;
+      const pct = (audio.currentTime / audio.duration) * 100;
+      seek.value = pct;
+    }, {passive:true});
+    audio.addEventListener('ended', () => {
+      if (currentIndexInQueue < queue.length - 1) {
+        currentIndexInQueue++;
+        loadAndPlaySong(queue[currentIndexInQueue]);
+      } else {
+        playBtn.textContent = 'Play';
+      }
+    });
+    try {
+      await audio.play();
+      playBtn.textContent = 'Pause';
+      drawVisualizer();
+    } catch (err) {
+      console.warn('Playback failed (autoplay or context).', err);
+      playBtn.textContent = 'Play';
+    }
+  }
+
+  function setAccent(rgb, label) {
+    document.documentElement.style.setProperty('--accent', rgb);
+    accentLabel.textContent = label || rgb;
+  }
+
+  async function extractAccentColorFromBlob(blob) {
+    try {
+      if (window.Vibrant) {
+        const url = URL.createObjectURL(blob);
+        const palette = await Vibrant.from(url).getPalette();
+        URL.revokeObjectURL(url);
+        const sw = palette.Vibrant || palette.Muted || palette.DarkVibrant || palette.LightVibrant;
+        if (sw) {
+          const rgb = sw.getRgb();
+          setAccent(`rgb(${Math.round(rgb[0])}, ${Math.round(rgb[1])}, ${Math.round(rgb[2])})`, 'from art');
+          return;
+        }
+      }
+    } catch (err) { console.warn('Vibrant failed', err); }
+    setAccent('#0f9d58', 'default');
+  }
+
+  async function handleFileList(files) {
+    const arr = Array.from(files);
+    for (const f of arr) {
+      let meta = {};
+      if (mm && mm.parseBlob) {
+        try {
+          const parsed = await mm.parseBlob(f, { duration: true });
+          const common = parsed?.common || {};
+          meta.title = common.title || parseFilename(f.name);
+          meta.artist = common.artist || common.albumartist || '';
+          meta.album = common.album || '';
+          meta.genre = (common.genre && common.genre[0]) || '';
+          if (common.picture && common.picture.length > 0) {
+            const pic = common.picture[0];
+            const coverBlob = new Blob([pic.data], { type: pic.format || 'image/jpeg' });
+            const coverKey = `cover-${Date.now()}-${Math.random().toString(36).slice(2,9)}`;
+            await db.table('blobs').put({ key: coverKey, blob: coverBlob });
+            meta.coverKey = coverKey;
+          }
+          meta.duration = parsed?.format?.duration || null;
+        } catch (err) {
+          console.warn('metadata parse failed for', f.name, err);
+          meta.title = parseFilename(f.name);
+        }
+      } else {
+        meta.title = parseFilename(f.name);
+      }
+      await saveSongFile(f, meta);
+    }
+    await refreshFileList();
+  }
+
+  function parseFilename(name) {
+    const base = name.replace(/\.[^/.]+$/, '');
+    const parts = base.split(/ - |_/);
+    if (parts.length >= 2) return parts.slice(1).join(' - ').trim();
+    return base;
+  }
+
+  // Controls
+  playBtn.addEventListener('click', async () => {
+    if (audio.paused) {
+      ensureAudioContext();
+      await audioContext.resume().catch(()=>{});
+      try { await audio.play(); } catch(err){ console.warn(err); }
+      playBtn.textContent = 'Pause';
+      drawVisualizer();
+    } else {
+      audio.pause();
+      playBtn.textContent = 'Play';
+      if (rafId) cancelAnimationFrame(rafId);
+    }
+  });
+  prevBtn.addEventListener('click', () => {
+    if (currentIndexInQueue > 0) {
+      currentIndexInQueue--;
+      loadAndPlaySong(queue[currentIndexInQueue]);
+    } else {
+      audio.currentTime = 0;
+    }
+  });
+  nextBtn.addEventListener('click', () => {
+    if (currentIndexInQueue < queue.length - 1) {
+      currentIndexInQueue++;
+      loadAndPlaySong(queue[currentIndexInQueue]);
+    }
+  });
+  seek.addEventListener('input', () => {
+    if (!audio.duration || isNaN(audio.duration)) return;
+    audio.currentTime = (seek.value / 100) * audio.duration;
+  });
+
+  visMode.addEventListener('change', () => {
+    if (visMode.value === 'hidden') {
+      if (rafId) cancelAnimationFrame(rafId);
+      vctx.clearRect(0,0,vizCanvas.width,vizCanvas.height);
+    } else {
+      drawVisualizer();
+    }
+  });
+
+  // Drag & drop
+  uploader.addEventListener('click', () => fileInput.click());
+  uploader.addEventListener('dragover', (e) => { e.preventDefault(); uploader.style.borderColor = 'rgba(255,255,255,0.12)'; });
+  uploader.addEventListener('dragleave', (e) => { uploader.style.borderColor = ''; });
+  uploader.addEventListener('drop', (e) => {
+    e.preventDefault();
+    uploader.style.borderColor = '';
+    const dt = e.dataTransfer;
+    if (dt && dt.files) handleFileList(dt.files);
+  });
+  fileInput.addEventListener('change', (e) => { handleFileList(e.target.files); e.target.value = ''; });
+
+  // AI playlist with expanded moods and simple heuristics
+  genPlaylistBtn.addEventListener('click', async () => {
+    aiPlaylist.innerHTML = '';
+    const serverEndpoint = '/api/ai/generate-playlist';
+    const mood = document.getElementById('mood').value;
+    let got = null;
+    try {
+      const res = await fetch(serverEndpoint, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ mood })});
+      if (res.ok) {
+        const data = await res.json();
+        got = data.playlist;
+      }
+    } catch (err) { /* ignore */ }
+
+    if (!got) {
+      const songs = await db.table('songs').toArray();
+      const moodMap = {
+        chill: ['chill','ambient','lofi','downtempo'],
+        energetic: ['dance','electronic','upbeat','pop'],
+        focus: ['instrumental','classical','focus','ambient'],
+        dance: ['dance','electronic','club'],
+        heavy: ['metal','rock','heavy','hard'],
+        moody: ['moody','dark','ambient','goth','indie','brooding'],
+        luveley: ['love','lovely','romantic','rnb','soul','ballad','luveley'],
+        dreamy: ['dream','shoegaze','ambient','ethereal','dreampop'],
+        aggressive: ['punk','hardcore','aggressive','angry'],
+        mellow: ['mellow','smooth','jazz','soul','chill']
+      };
+      const keywords = moodMap[mood] || [];
+      // try exact keyword match in genre/title/artist
+      let matches = [];
+      if (keywords.length) {
+        matches = songs.filter(s => {
+          const g = (s.genre || '').toLowerCase();
+          const t = (s.title || '').toLowerCase();
+          const a = (s.artist || '').toLowerCase();
+          return keywords.some(k => (g.includes(k) || t.includes(k) || a.includes(k)));
+        }).map(s => s.id);
+      }
+      // If not enough matches, prefer liked tracks
+      if (matches.length < 10) {
+        const liked = songs.filter(s => s.liked).map(s => s.id).filter(id => !matches.includes(id));
+        matches = matches.concat(liked);
+      }
+      // fill random
+      const remaining = songs.map(s => s.id).filter(id => !matches.includes(id));
+      while (matches.length < 10 && remaining.length > 0) {
+        const idx = Math.floor(Math.random()*remaining.length);
+        matches.push(remaining.splice(idx,1)[0]);
+      }
+      got = matches.slice(0,10);
+    }
+
+    for (const id of got) {
+      const li = document.createElement('li');
+      const s = await db.table('songs').get(id);
+      li.textContent = s ? `${s.title} — ${s.artist || ''}` : `#${id}`;
+      aiPlaylist.appendChild(li);
+    }
+  });
+
+  // Lyrics fetch with improved fallbacks
+  fetchLyricsBtn.addEventListener('click', async () => {
+    if (!currentSong) { lyricsBox.textContent = 'Load a track first.'; return; }
+    lyricsBox.textContent = 'Fetching lyrics...';
+    try {
+      const res = await fetch('/api/lyrics', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ artist: currentSong.artist, title: currentSong.title })});
+      if (res.ok) {
+        const j = await res.json();
+        if (j.lyricsText) { lyricsBox.textContent = j.lyricsText; return; }
+      }
+    } catch (err) { /* continue to fallback */ }
+    try {
+      const artist = currentSong.artist || '';
+      const title = currentSong.title || '';
+      const res2 = await fetch(`https://api.lyrics.ovh/v1/${encodeURIComponent(artist)}/${encodeURIComponent(title)}`);
+      if (res2.ok) {
+        const j2 = await res2.json();
+        if (j2.lyrics) { lyricsBox.textContent = j2.lyrics; return; }
+      }
+    } catch (err) {
+      console.warn('lyrics.ovh failed', err);
+    }
+    const pasted = prompt('Lyrics were not found automatically. Paste lyrics here (OK to cancel):');
+    if (pasted) {
+      lyricsBox.textContent = pasted;
+    } else {
+      lyricsBox.textContent = 'No lyrics available. Provide a server proxy at /api/lyrics for better coverage.';
+    }
+  });
+
+  // Edit metadata modal behavior (now includes cover upload + remove)
+  editMetadataBtn.addEventListener('click', async () => {
+    if (!currentSong) { alert('Load a track first to edit metadata.'); return; }
+    metaTitle.value = currentSong.title || '';
+    metaArtist.value = currentSong.artist || '';
+    metaAlbum.value = currentSong.album || '';
+    metaGenre.value = currentSong.genre || '';
+    metaRemoveCover.checked = false;
+    metaCoverInput.value = '';
+    metaCoverPreview.src = '';
+    // preview current cover if present
+    if (currentSong.coverKey) {
+      const b = await getSongBlobByKey(currentSong.coverKey);
+      if (b) {
+        const url = URL.createObjectURL(b);
+        metaCoverPreview.src = url;
+        metaCoverPreview.onload = () => { try { URL.revokeObjectURL(url); } catch(e){} };
+      } else {
+        metaCoverPreview.src = '';
+      }
+    } else {
+      metaCoverPreview.src = '';
+    }
+    modalBackdrop.style.display = 'flex';
+  });
+
+  metaCoverInput.addEventListener('change', (e) => {
+    const f = e.target.files && e.target.files[0];
+    if (f) {
+      const url = URL.createObjectURL(f);
+      metaCoverPreview.src = url;
+      metaCoverPreview.onload = () => { try { URL.revokeObjectURL(url); } catch(e){} };
+      // if user selected a new file, uncheck removeCover
+      metaRemoveCover.checked = false;
+    }
+  });
+
+  modalCancel.addEventListener('click', () => { modalBackdrop.style.display = 'none'; });
+
+  modalSave.addEventListener('click', async () => {
+    if (!currentSong) return;
+    const updated = {
+      title: metaTitle.value.trim(),
+      artist: metaArtist.value.trim(),
+      album: metaAlbum.value.trim(),
+      genre: metaGenre.value.trim()
+    };
+    // handle cover: upload new image if selected, or remove if requested
+    let newCoverKey = null;
+    if (metaCoverInput.files && metaCoverInput.files.length > 0) {
+      const file = metaCoverInput.files[0];
+      // create new cover key & store
+      newCoverKey = `cover-${Date.now()}-${Math.random().toString(36).slice(2,9)}`;
+      await db.table('blobs').put({ key: newCoverKey, blob: file });
+      // delete old cover blob if present
+      if (currentSong.coverKey) {
+        try { await db.table('blobs').delete(currentSong.coverKey); } catch (err) { console.warn('delete old cover failed', err); }
+      }
+      updated.coverKey = newCoverKey;
+    } else if (metaRemoveCover.checked) {
+      // remove existing
+      if (currentSong.coverKey) {
+        try { await db.table('blobs').delete(currentSong.coverKey); } catch (err) { console.warn('delete cover failed', err); }
+      }
+      updated.coverKey = null;
+    }
+    await db.table('songs').update(currentSong.id, updated);
+    // update currentSong in memory
+    currentSong = Object.assign({}, currentSong, updated);
+    trackTitle.textContent = currentSong.title;
+    trackSub.textContent = (currentSong.artist || 'Unknown artist') + (currentSong.album ? ' • ' + currentSong.album : '');
+    nowPlaying.textContent = `${currentSong.title} — ${currentSong.artist || 'Unknown'}`;
+    // update cover in UI
+    if (updated.coverKey) {
+      const b = await getSongBlobByKey(updated.coverKey);
+      if (b) {
+        if (currentCoverURL) { try { URL.revokeObjectURL(currentCoverURL); } catch(e){} currentCoverURL = null; }
+        const img = document.createElement('img');
+        currentCoverURL = URL.createObjectURL(b);
+        img.src = currentCoverURL;
+        img.style.width = '100%';
+        img.style.height = '100%';
+        img.style.objectFit = 'cover';
+        coverWrap.innerHTML = '';
+        coverWrap.appendChild(img);
+        extractAccentColorFromBlob(b);
+      }
+    } else if (updated.coverKey === null) {
+      coverWrap.innerHTML = '';
+      setAccent('#0f9d58','default');
+    }
+    modalBackdrop.style.display = 'none';
+    await refreshFileList();
+  });
+
+  // Clear DB
+  clearDbBtn.addEventListener('click', async () => {
+    if (!confirm('Clear your local library? This deletes all stored audio.')) return;
+    await db.clear();
+    await refreshFileList();
+    queue = [];
+    persistQueueUI();
+    coverWrap.innerHTML = '';
+    trackTitle.textContent = '';
+    trackSub.textContent = '';
+    nowPlaying.textContent = 'No track loaded';
+    lyricsBox.textContent = 'No lyrics loaded.';
+  });
+
+  // Queue operations
+  shuffleBtn.addEventListener('click', () => {
+    for (let i=queue.length-1;i>0;i--) {
+      const j = Math.floor(Math.random()*(i+1));
+      [queue[i],queue[j]] = [queue[j],queue[i]];
+    }
+    persistQueueUI();
+  });
+  saveQueueBtn.addEventListener('click', () => {
+    localStorage.setItem('echostreamQueue', JSON.stringify(queue));
+    alert('Queue saved to localStorage.');
+  });
+
+  // init
+  initEqUI();
+  await refreshFileList();
+  try {
+    const persisted = JSON.parse(localStorage.getItem('echostreamQueue') || '[]');
+    if (Array.isArray(persisted) && persisted.length) { queue = persisted; persistQueueUI(); }
+  } catch (err) {}
+  window.addEventListener('beforeunload', () => { localStorage.setItem('echostreamQueue', JSON.stringify(queue)); });
+
+  uploader.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { fileInput.click(); } });
+
+  // Set default accent
+  setAccent(getComputedStyle(document.documentElement).getPropertyValue('--accent').trim(), 'default');
+
+  console.info('EchoStream updated: cover upload + expanded mood list (Heavy, Moody, Luveley, etc.).\nNotes: store API keys server-side and implement /api/lyrics and /api/ai/generate-playlist for production.');
+
+  </script>
+</body>
+</html>
